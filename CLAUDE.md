@@ -179,6 +179,8 @@ uv run ruff format .
 
 7. **Multi-runtime**: `coral.agent.registry` maps `agents.runtime` to a runtime class. `claude_code` is the default. Each runtime knows its native shared-state directory (`.claude`, `.codex`, `.opencode`, ...) — `generate_coral_md(..., shared_dir=...)` renders the right paths into CORAL.md.
 
+Optional `agents.observer` launches a fresh-context strategy review when a single-island team stalls. It remains outside the optimizer roster, publishes advice through ordinary notes, and persists triggers/delivery across resume. Disabled by default; see the configuration reference.
+
 ## Key Files
 
 | File | Purpose |

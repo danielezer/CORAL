@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -110,6 +111,35 @@ class WarmStartConfig:
     """Warm-start configuration: optional research phase before the main coding loop."""
 
     enabled: bool = False
+
+
+def _validate_threshold(name: str, value: float, *, allow_zero: bool = False) -> None:
+    valid_range = value >= 0 if allow_zero else value > 0
+    if not math.isfinite(value) or not valid_range:
+        bound = ">= 0" if allow_zero else "> 0"
+        raise ValueError(f"agents.observer.{name} must be finite and {bound}")
+
+
+@dataclass
+class ObserverConfig:
+    """Opt-in, temporary strategy reviews after team progress stalls."""
+
+    enabled: bool = False
+    runtime: str = ""
+    model: str = ""
+    runtime_options: dict[str, Any] = field(default_factory=dict)
+    plateau_evals: int = 10
+    improvement_fraction: float = 0.05
+    idle_minutes: float = 60
+    cooldown_minutes: float = 60
+    timeout_minutes: float = 20
+
+    def __post_init__(self) -> None:
+        _validate_threshold("plateau_evals", self.plateau_evals)
+        _validate_threshold("improvement_fraction", self.improvement_fraction)
+        _validate_threshold("idle_minutes", self.idle_minutes)
+        _validate_threshold("timeout_minutes", self.timeout_minutes)
+        _validate_threshold("cooldown_minutes", self.cooldown_minutes, allow_zero=True)
 
 
 @dataclass
@@ -229,6 +259,7 @@ class AgentConfig:
     gateway: GatewayConfig = field(default_factory=GatewayConfig)
     warmstart: WarmStartConfig = field(default_factory=WarmStartConfig)
     notes: NotesConfig = field(default_factory=NotesConfig)
+    observer: ObserverConfig = field(default_factory=ObserverConfig)
     runtime_options: dict[str, Any] = field(default_factory=dict)
     # OS-user isolation: when set (e.g. "agent"), the agent subprocess is run as
     # this unprivileged user while the manager/grader stay root. The agent's
@@ -291,6 +322,8 @@ class AgentConfig:
         # leave nested sandbox config as a plain dict; coerce like RunConfig.stop.
         if isinstance(self.sandbox, dict):
             self.sandbox = SandboxConfig(**self.sandbox)
+        if isinstance(self.observer, dict):
+            self.observer = ObserverConfig(**self.observer)
         if isinstance(self.notes, dict):
             self.notes = NotesConfig(**self.notes)
         if self.sandbox.enabled and self.isolate_user:
@@ -467,6 +500,10 @@ class CoralConfig:
     workspace: WorkspaceConfig = field(default_factory=WorkspaceConfig)
     run: RunConfig = field(default_factory=RunConfig)
     task_dir: Path | None = None  # internal: directory containing task.yaml
+
+    def __post_init__(self) -> None:
+        if self.agents.observer.enabled and self.islands.count > 1:
+            raise ValueError("agents.observer currently supports single-island runs only")
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> CoralConfig:

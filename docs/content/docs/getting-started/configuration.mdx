@@ -153,6 +153,7 @@ packaged-grader layout.
 | `timeout` | int | `3600` | Agent session timeout in seconds |
 | `research` | bool | `true` | Enable web search in agent workflow |
 | `heartbeat` | list | see below | Periodic actions triggered during eval loop |
+| `observer` | object | see below | Optional strategy reviews when team progress stalls |
 
 ### Heartbeat actions
 
@@ -172,6 +173,37 @@ You can also define custom heartbeat actions with a prompt:
 ```bash
 coral heartbeat set review --every 5 --prompt "Review your approach and consider alternatives."
 ```
+
+### Strategy observer
+
+`agents.observer` launches a temporary agent with fresh context to review existing
+work while optimizers continue. Successful reviews become shared notes delivered
+as advice. Requires `islands.count: 1`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable strategy reviews |
+| `runtime` | string | inherited | Defaults to `agents.runtime` |
+| `model` | string | inherited | Uses `agents.model`, or the selected runtime's default when the runtime differs |
+| `runtime_options` | object | `{}` | Overrides merged over `agents.runtime_options` |
+| `plateau_evals` | int | `10` | Completed real team evaluations without meaningful improvement before a review |
+| `improvement_fraction` | float | `0.05` | Relative improvement needed to reset the stall window; small gains accumulate |
+| `idle_minutes` | float | `60` | Active minutes without meaningful improvement before a review, even without evaluations |
+| `cooldown_minutes` | float | `60` | Minimum active minutes between review starts; `0` disables cooldown |
+| `timeout_minutes` | float | `20` | Maximum review duration in minutes |
+
+```yaml
+agents:
+  observer:
+    enabled: true
+    runtime: codex
+    model: gpt-6-astra
+```
+
+Monitoring starts after warm-start and triggers on either evaluation count or
+active time, respecting `grader.direction`. Failed real evaluations count;
+pending, tune, and grader-error attempts do not. Only one review runs at a time.
+State persists across resume, excluding time while the manager is stopped.
 
 ## `islands` section
 

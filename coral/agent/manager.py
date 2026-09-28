@@ -39,6 +39,7 @@ from coral.agent.migration import (
     MigrationRunner,
     choose_roster_balanced_subset,
 )
+from coral.agent.observer import StrategyObserver
 from coral.agent.registry import get_runtime
 from coral.agent.runtime import AgentHandle, AgentRuntime
 from coral.agent.state import (
@@ -102,6 +103,9 @@ class AgentManager:
         config_dir: Path | None = None,
     ) -> None:
         """Initialize the AgentManager with configuration and state tracking structures."""
+        if config.agents.observer.enabled and config.islands.count > 1:
+            raise ValueError("agents.observer currently supports single-island runs only")
+        self._observer: StrategyObserver | None = None
         self.config = config
         self.config_dir = config_dir
         # Resolve concrete per-agent specs, then (when multi-island) partition them
@@ -191,6 +195,13 @@ class AgentManager:
         # survives `coral resume`.
         self._last_migrated_eval: dict[str, int] = {}
 
+    def _init_observer(self) -> None:
+        # Even when disabled on resume, reconcile old processes and deliver
+        # already-published notes. Disabling only prevents future reviews.
+        existing = self.paths and (self.paths.coral_dir / "observer_state.json").exists()
+        if self._observer is None and (self.config.agents.observer.enabled or existing):
+            self._observer = StrategyObserver(self)
+
     def _runtime_for(self, agent_id: str) -> AgentRuntime:
         """Return the runtime instance for an agent_id, creating one on demand.
 
@@ -264,6 +275,8 @@ class AgentManager:
 
         if warmstart.enabled:
             research_sessions = self._run_warmstart_research(warmstart, agent_ids)
+
+        self._init_observer()
 
         # 4. For each agent: create worktree, generate CLAUDE.md, spawn runtime
         handles = []
@@ -469,7 +482,14 @@ class AgentManager:
             self.paths.agents_dir / s.agent_id for s in self.specs if island_of(s.agent_id) == own
         ]
 
-    def _sandbox_spec_for(self, agent_id: str, worktree_path: Path, shared_dir_name: str):
+    def _sandbox_spec_for(
+        self,
+        agent_id: str,
+        worktree_path: Path,
+        shared_dir_name: str,
+        *,
+        read_only_team: bool = False,
+    ):
         """Build the agent's sandbox launch spec (None when disabled).
 
         Called on every (re)start so specs always reflect live provider
@@ -491,6 +511,7 @@ class AgentManager:
                 repo_dir=self.paths.repo_dir,
                 shared_dir_name=shared_dir_name,
                 sibling_worktrees=self._island_worktrees(agent_id),
+                read_only_team=read_only_team,
             )
         )
         logger.info(f"  {agent_id}: sandboxed via {self.config.agents.sandbox.provider!r}")
@@ -718,6 +739,9 @@ class AgentManager:
         else:
             log_dir = self.paths.coral_dir / "public" / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
+        advice, pending_notes = self._observer.advice(agent_id) if self._observer else ("", [])
+        if advice:
+            prompt = (prompt or "") + advice
         handle = runtime.start(
             worktree_path=worktree_path,
             coral_md_path=worktree_path / instruction_file,
@@ -736,6 +760,8 @@ class AgentManager:
             run_as_user=run_as_user,
             sandbox=sandbox_spec,
         )
+        if self._observer and pending_notes:
+            self._observer.acknowledge(agent_id, pending_notes)
         # Record fresh process start time for the exit-classifier uptime check.
         self._started_at[agent_id] = time.time()
         return handle
@@ -866,6 +892,7 @@ class AgentManager:
         """Resume agents into an existing run's worktrees."""
         self._start_time = datetime.now(UTC)
         self.paths = paths
+        self._init_observer()
         self._last_migrated_eval = _read_last_migrated_evals(paths.coral_dir)
 
         # Start gateway if configured
@@ -1075,6 +1102,8 @@ class AgentManager:
         self._stopping = True
         self._running = False
         self._stop_event.set()
+        if self._observer:
+            self._observer.stop()
         # Save session IDs before killing processes
         self._save_sessions()
         for handle in self.handles:
@@ -2314,7 +2343,10 @@ class AgentManager:
             if self._stopping:
                 # Second Ctrl+C: force immediate exit
                 logger.warning("Force exit (second signal)")
-                for handle in self.handles:
+                handles = list(self.handles)
+                if self._observer and self._observer.handle:
+                    handles.append(self._observer.handle)
+                for handle in handles:
                     if handle.process and handle.alive:
                         try:
                             os.killpg(os.getpgid(handle.process.pid), signal.SIGKILL)
@@ -2347,7 +2379,12 @@ class AgentManager:
 
         logger.info(f"Monitoring {len(self.handles)} agent(s) (check every {check_interval}s)...")
 
+        self._init_observer()
         while self._running:
+            if self._observer:
+                self._observer.tick()
+                if not self._running:
+                    break
             # Check for new attempts
             current_attempts = self._get_seen_attempts()
             new_attempts = current_attempts - seen_attempts
@@ -2697,6 +2734,8 @@ class AgentManager:
 
     def _atexit_cleanup(self) -> None:
         """Safety net: kill any surviving agent processes on interpreter exit."""
+        if self._observer:
+            self._observer.stop()
         self._save_sessions()
         for handle in self.handles:
             if handle.process and handle.alive:
@@ -2922,7 +2961,7 @@ def _refresh_runtime_settings(
     research: bool,
     gateway_url: str | None,
     gateway_api_key: str | None,
-    island_id: str,
+    island_id: str | None,
 ) -> None:
     """Re-write the runtime's permission file against a new island root.
 

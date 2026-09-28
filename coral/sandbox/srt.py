@@ -108,6 +108,7 @@ class SrtSandbox:
             shared_dir_name=ctx.shared_dir_name,
             proxy_port=self._proxy.port if self._proxy else None,
             sibling_worktrees=ctx.sibling_worktrees,
+            read_only_team=ctx.read_only_team,
         )
         settings_dir = ctx.coral_dir / "private" / "sandbox"
         settings_dir.mkdir(parents=True, exist_ok=True)
@@ -368,6 +369,7 @@ def build_srt_settings(
     shared_dir_name: str,
     proxy_port: int | None,
     sibling_worktrees: list[Path] | None = None,
+    read_only_team: bool = False,
 ) -> dict[str, Any]:
     """Build the srt settings JSON for one agent.
 
@@ -418,6 +420,24 @@ def build_srt_settings(
         # Runtime CLIs allocate ptys for their shell tools (macOS-only knob).
         "allowPty": True,
     }
+
+    if read_only_team:
+        settings["filesystem"]["allowRead"].extend(
+            str(p.resolve()) for p in sibling_worktrees or []
+        )
+        settings["filesystem"]["allowWrite"] = [
+            str(worktree_path.resolve()),
+            *home_paths,
+            "/tmp",
+            "/private/tmp",
+        ]
+        settings["filesystem"]["denyWrite"].extend(
+            [
+                str(coral_dir.resolve()),
+                str(repo_dir.resolve()),
+                *(str(p.resolve()) for p in sibling_worktrees or []),
+            ]
+        )
 
     if cfg.network == "open":
         if proxy_port is None:

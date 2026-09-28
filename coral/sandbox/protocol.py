@@ -51,6 +51,8 @@ class AgentSandboxContext:
     # (migration). Empty means "provider decides" (e.g. srt falls back to
     # on-disk breadcrumbs).
     sibling_worktrees: list[Path] = field(default_factory=list)
+    # Observers may inspect team artifacts but only write in their own workspace.
+    read_only_team: bool = False
 
 
 @dataclass
