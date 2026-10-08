@@ -1,13 +1,7 @@
 ---
 name: librarian
 description: "Knowledge librarian — organize notes, deduplicate findings, and extract reusable skills."
-tools:
-  Bash: true
-  Read: true
-  Write: true
-  Edit: true
-  Glob: true
-  Grep: true
+tools: Bash, Read, Write, Edit, Glob, Grep
 skills:
   skill-creator: true
 ---

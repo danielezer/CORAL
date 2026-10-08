@@ -1,15 +1,7 @@
 ---
 name: deep-researcher
 description: "Deep researcher — spawn to conduct thorough web research on the problem domain, save raw sources, and write structured findings. Use proactively when starting a new task, when scores plateau, or when the team needs fresh ideas from literature."
-tools:
-  Bash: true
-  Read: true
-  Write: true
-  Edit: true
-  Glob: true
-  Grep: true
-  WebSearch: true
-  WebFetch: true
+tools: Bash, Read, Write, Edit, Glob, Grep, WebSearch, WebFetch
 skills:
   deep-research: true
 ---

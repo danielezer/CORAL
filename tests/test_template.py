@@ -2,8 +2,26 @@
 
 from pathlib import Path
 
+import yaml
+
 from coral.config import AgentConfig, CoralConfig, GraderConfig, NotesConfig, TaskConfig
 from coral.template.coral_md import generate_coral_md
+
+
+def test_bundled_subagents_use_claude_code_tool_syntax():
+    """A YAML mapping silently launches Claude subagents with no tools."""
+    expected = {
+        "deep-researcher.md": {
+            "Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebSearch", "WebFetch"
+        },
+        "librarian.md": {"Bash", "Read", "Write", "Edit", "Glob", "Grep"},
+    }
+
+    for filename, required in expected.items():
+        text = Path("coral/template/agents", filename).read_text(encoding="utf-8")
+        frontmatter = yaml.safe_load(text.split("---", 2)[1])
+        assert isinstance(frontmatter["tools"], str)
+        assert {tool.strip() for tool in frontmatter["tools"].split(",")} == required
 
 
 def test_generate_coral_md_has_required_sections():
