@@ -293,7 +293,32 @@ def _run_dir_reads(
     grader_source = grader_source_dir(coral_dir)
     if grader_source is not None:
         reads.append(str(grader_source.resolve()))
+    reads.extend(_task_preflight_reads(coral_dir))
     return reads
+
+
+def _task_preflight_reads(coral_dir: Path) -> list[str]:
+    """Return the task-authored preflight descriptor and its declared bundle.
+
+    The task directory itself stays denied because it may contain held-out data.
+    Preflight nevertheless needs its public descriptor and the exact source files
+    listed there. The task author is already trusted to provide and execute the
+    grader, so granting these explicitly named files does not widen that boundary.
+    """
+    config_dir_file = coral_dir / "config_dir"
+    try:
+        config_dir = Path(config_dir_file.read_text(encoding="utf-8").strip())
+        descriptor = config_dir / "kernel-preflight.json"
+        config = json.loads(descriptor.read_text(encoding="utf-8"))
+        adapter = config["adapter"]
+        relative_files = [adapter["path"], *adapter.get("support_files", [])]
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return []
+
+    return [
+        str(descriptor.resolve()),
+        *((str((config_dir / relative).resolve())) for relative in relative_files),
+    ]
 
 
 def _coral_install_reads() -> list[str]:

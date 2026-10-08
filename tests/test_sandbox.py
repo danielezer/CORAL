@@ -209,6 +209,36 @@ def test_build_settings_grader_source_readable(tmp_path):
     assert str((task_dir / "taskdata").resolve()) not in allow_read
 
 
+def test_build_settings_preflight_bundle_readable(tmp_path):
+    paths = _paths(tmp_path)
+    task_dir = tmp_path / "task"
+    grader = task_dir / "grader"
+    support = tmp_path / "support.py"
+    grader.mkdir(parents=True)
+    adapter = grader / "task_preflight.py"
+    adapter.write_text("ADAPTER = None\n")
+    support.write_text("# support\n")
+    descriptor = task_dir / "kernel-preflight.json"
+    descriptor.write_text(
+        json.dumps({
+            "adapter": {
+                "path": "grader/task_preflight.py",
+                "support_files": ["../support.py"],
+            }
+        })
+    )
+    (paths["coral_dir"] / "config_dir").write_text(str(task_dir))
+
+    allow_read = build_srt_settings(SandboxConfig(enabled=True), proxy_port=1, **paths)[
+        "filesystem"
+    ]["allowRead"]
+
+    assert str(descriptor.resolve()) in allow_read
+    assert str(adapter.resolve()) in allow_read
+    assert str(support.resolve()) in allow_read
+    assert str(task_dir.resolve()) not in allow_read
+
+
 def test_build_settings_coral_install_readable(tmp_path):
     """Agents must resolve `coral` to the manager's own installation.
 
